@@ -29,6 +29,25 @@ export function extractYouTubeVideoId(rawUrl: string): string | null {
   return null
 }
 
+export function extractYouTubePlaylistId(rawUrl: string): string | null {
+  let url: URL
+  try {
+    url = new URL(rawUrl.trim())
+  } catch {
+    return null
+  }
+
+  const host = url.hostname.replace(/^www\./, '')
+  if (host !== 'youtube.com' && host !== 'm.youtube.com' && host !== 'music.youtube.com') {
+    return null
+  }
+
+  if (url.pathname !== '/playlist') return null
+  if (url.searchParams.get('v')) return null // มี video id ร่วมด้วย → ถือเป็นวิดีโอเดี่ยวเสมอ
+
+  return url.searchParams.get('list')
+}
+
 export function getYouTubeThumbnail(videoId: string): string {
   return `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
 }
