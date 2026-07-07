@@ -55,9 +55,12 @@ export async function fetchVideoDetailsBatch(videoIds: string[]): Promise<VideoD
   const results: VideoDetails[] = []
   for (const chunk of chunks) {
     try {
-      const res = await fetch(
-        `${API_BASE}/videos?part=snippet,contentDetails&id=${chunk.join(',')}&key=${key}`
-      )
+      const params = new URLSearchParams({
+        part: 'snippet,contentDetails',
+        id: chunk.join(','),
+        key,
+      })
+      const res = await fetch(`${API_BASE}/videos?${params}`)
       if (!res.ok) continue
       const data: VideosApiResponse = await res.json()
       results.push(...data.items.map(mapVideoItem))
