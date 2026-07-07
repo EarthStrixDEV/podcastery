@@ -81,6 +81,15 @@ export function AddEpisodeDialog({
     onOpenChange(next)
   }
 
+  const handleTabChange = (next: TabKey) => {
+    setTab(next)
+    if (next === 'url') {
+      setSearchQuery('')
+      setSearchResults([])
+      setAddingVideoId(null)
+    }
+  }
+
   const resolvePlaylistId = (): string | null => {
     if (selectedPlaylistId !== NEW_PLAYLIST_VALUE) return selectedPlaylistId
     const name = newPlaylistName.trim()
@@ -209,10 +218,14 @@ export function AddEpisodeDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex gap-1 rounded-lg bg-muted p-1">
+        <div className="flex gap-1 rounded-lg bg-muted p-1" role="tablist">
           <button
+            id="tab-url"
             type="button"
-            onClick={() => setTab('url')}
+            role="tab"
+            aria-selected={tab === 'url'}
+            aria-controls="panel-url"
+            onClick={() => handleTabChange('url')}
             className={cn(
               'flex-1 rounded-md py-1.5 text-sm font-medium transition-colors',
               tab === 'url' ? 'bg-background shadow-sm' : 'text-muted-foreground'
@@ -221,8 +234,12 @@ export function AddEpisodeDialog({
             วาง URL
           </button>
           <button
+            id="tab-search"
             type="button"
-            onClick={() => setTab('search')}
+            role="tab"
+            aria-selected={tab === 'search'}
+            aria-controls="panel-search"
+            onClick={() => handleTabChange('search')}
             className={cn(
               'flex-1 rounded-md py-1.5 text-sm font-medium transition-colors',
               tab === 'search' ? 'bg-background shadow-sm' : 'text-muted-foreground'
@@ -235,7 +252,7 @@ export function AddEpisodeDialog({
         {playlistSelector}
 
         {tab === 'url' ? (
-          <div className="flex flex-col gap-4">
+          <div id="panel-url" role="tabpanel" aria-labelledby="tab-url" className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="youtube-url">YouTube URL (วิดีโอ หรือ playlist)</Label>
               <Input
@@ -268,7 +285,7 @@ export function AddEpisodeDialog({
             </DialogFooter>
           </div>
         ) : (
-          <div className="flex flex-col gap-3">
+          <div id="panel-search" role="tabpanel" aria-labelledby="tab-search" className="flex flex-col gap-3">
             <div className="flex gap-2">
               <Input
                 placeholder="ค้นหาวิดีโอบน YouTube..."
