@@ -75,3 +75,38 @@ export async function fetchVideoDetails(videoId: string): Promise<VideoDetails |
   const results = await fetchVideoDetailsBatch([videoId])
   return results[0] ?? null
 }
+
+export interface ChannelInfo {
+  channelId: string
+  title: string
+  thumbnail: string
+}
+
+interface ChannelsApiItem {
+  id: string
+  snippet: { title: string; thumbnails: { default: { url: string } } }
+}
+
+interface ChannelsApiResponse {
+  items: ChannelsApiItem[]
+}
+
+export async function fetchChannelInfo(channelId: string): Promise<ChannelInfo | null> {
+  const key = getApiKey()
+  if (!key) return null
+
+  try {
+    const res = await fetch(`${API_BASE}/channels?part=snippet&id=${channelId}&key=${key}`)
+    if (!res.ok) return null
+    const data: ChannelsApiResponse = await res.json()
+    const item = data.items[0]
+    if (!item) return null
+    return {
+      channelId: item.id,
+      title: item.snippet.title,
+      thumbnail: item.snippet.thumbnails.default.url,
+    }
+  } catch {
+    return null
+  }
+}
