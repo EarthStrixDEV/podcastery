@@ -96,7 +96,12 @@ export async function fetchChannelInfo(channelId: string): Promise<ChannelInfo |
   if (!key) return null
 
   try {
-    const res = await fetch(`${API_BASE}/channels?part=snippet&id=${channelId}&key=${key}`)
+    const params = new URLSearchParams({
+      part: 'snippet',
+      id: channelId,
+      key,
+    })
+    const res = await fetch(`${API_BASE}/channels?${params}`)
     if (!res.ok) return null
     const data: ChannelsApiResponse = await res.json()
     const item = data.items[0]
