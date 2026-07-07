@@ -2,8 +2,37 @@ import { useCallback, useState } from 'react'
 import { useLocalStorage } from '@/hooks/useLocalStorage'
 import type { Episode, Playlist } from '@/types/playlist'
 import { extractYouTubeVideoId, fetchYouTubeOEmbed, getYouTubeThumbnail } from '@/lib/youtube'
+import { fetchVideoDetails, fetchChannelInfo, type VideoDetails } from '@/lib/youtubeDataApi'
 
 const STORAGE_KEY = 'podcastery:playlists'
+
+async function buildEpisodeFromVideoId(videoId: string, rawUrl: string): Promise<Episode> {
+  const [dataApiResult, oembedResult] = await Promise.allSettled([
+    fetchVideoDetails(videoId),
+    fetchYouTubeOEmbed(videoId),
+  ])
+
+  const details: VideoDetails | null = dataApiResult.status === 'fulfilled' ? dataApiResult.value : null
+  const oembed = oembedResult.status === 'fulfilled' ? oembedResult.value : null
+
+  let channelThumbnail: string | undefined
+  if (details?.channelId) {
+    const channel = await fetchChannelInfo(details.channelId)
+    channelThumbnail = channel?.thumbnail
+  }
+
+  return {
+    id: crypto.randomUUID(),
+    url: rawUrl.trim(),
+    videoId,
+    title: details?.title ?? oembed?.title ?? `Episode ${videoId}`,
+    thumbnail: getYouTubeThumbnail(videoId),
+    addedAt: Date.now(),
+    durationSeconds: details?.durationSeconds,
+    channelTitle: details?.channelTitle,
+    channelThumbnail,
+  }
+}
 
 export function usePlaylists() {
   const [playlists, setPlaylists] = useLocalStorage<Playlist[]>(STORAGE_KEY, [])
@@ -39,15 +68,7 @@ export function usePlaylists() {
         return 'ลิงก์ YouTube ไม่ถูกต้อง กรุณาวางลิงก์รูปแบบ youtube.com/watch?v=... หรือ youtu.be/...'
       }
 
-      const oembed = await fetchYouTubeOEmbed(videoId)
-      const episode: Episode = {
-        id: crypto.randomUUID(),
-        url: rawUrl.trim(),
-        videoId,
-        title: oembed?.title ?? `Episode ${videoId}`,
-        thumbnail: getYouTubeThumbnail(videoId),
-        addedAt: Date.now(),
-      }
+      const episode = await buildEpisodeFromVideoId(videoId, rawUrl)
       setPlaylists((prev) =>
         prev.map((p) => (p.id === playlistId ? { ...p, episodes: [...p.episodes, episode] } : p))
       )
