@@ -115,3 +115,58 @@ export async function fetchChannelInfo(channelId: string): Promise<ChannelInfo |
     return null
   }
 }
+
+export interface SearchResultItem {
+  videoId: string
+  title: string
+  channelTitle: string
+  thumbnail: string
+}
+
+interface SearchApiItem {
+  id: { videoId?: string }
+  snippet: { title: string; channelTitle: string; thumbnails: { medium?: { url: string }; default: { url: string } } }
+}
+
+interface SearchApiResponse {
+  items: SearchApiItem[]
+}
+
+export async function searchVideos(query: string): Promise<SearchResultItem[]> {
+  const key = getApiKey()
+  if (!key) {
+    throw new Error('ยังไม่ได้ตั้งค่า YouTube API Key')
+  }
+
+  const params = new URLSearchParams({
+    part: 'snippet',
+    type: 'video',
+    maxResults: '12',
+    q: query,
+    key,
+  })
+
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}/search?${params}`)
+  } catch {
+    throw new Error('เชื่อมต่อ YouTube ไม่สำเร็จ ลองใหม่อีกครั้ง')
+  }
+
+  if (res.status === 403) {
+    throw new Error('โควต้า YouTube API หมดสำหรับวันนี้ ลองใหม่พรุ่งนี้ หรือวาง URL แทนการค้นหา')
+  }
+  if (!res.ok) {
+    throw new Error('ค้นหาไม่สำเร็จ ลองใหม่อีกครั้ง')
+  }
+
+  const data: SearchApiResponse = await res.json()
+  return data.items
+    .filter((item) => !!item.id.videoId)
+    .map((item) => ({
+      videoId: item.id.videoId as string,
+      title: item.snippet.title,
+      channelTitle: item.snippet.channelTitle,
+      thumbnail: item.snippet.thumbnails.medium?.url ?? item.snippet.thumbnails.default.url,
+    }))
+}
