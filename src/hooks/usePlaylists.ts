@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react'
 import { useLocalStorage } from '@/hooks/useLocalStorage'
 import type { Episode, Playlist } from '@/types/playlist'
 import { extractYouTubeVideoId, fetchYouTubeOEmbed, getYouTubeThumbnail } from '@/lib/youtube'
-import { fetchVideoDetails, fetchChannelInfo, type VideoDetails } from '@/lib/youtubeDataApi'
+import { fetchVideoDetails, fetchChannelInfo, type VideoDetails, type SearchResultItem } from '@/lib/youtubeDataApi'
 
 const STORAGE_KEY = 'podcastery:playlists'
 
@@ -77,6 +77,17 @@ export function usePlaylists() {
     [setPlaylists]
   )
 
+  const addEpisodeFromSearchResult = useCallback(
+    async (playlistId: string, result: SearchResultItem) => {
+      const rawUrl = `https://www.youtube.com/watch?v=${result.videoId}`
+      const episode = await buildEpisodeFromVideoId(result.videoId, rawUrl)
+      setPlaylists((prev) =>
+        prev.map((p) => (p.id === playlistId ? { ...p, episodes: [...p.episodes, episode] } : p))
+      )
+    },
+    [setPlaylists]
+  )
+
   const removeEpisode = useCallback(
     (playlistId: string, episodeId: string) => {
       setPlaylists((prev) =>
@@ -93,6 +104,7 @@ export function usePlaylists() {
     createPlaylist,
     deletePlaylist,
     addEpisode,
+    addEpisodeFromSearchResult,
     removeEpisode,
     nowPlaying,
     setNowPlaying,
