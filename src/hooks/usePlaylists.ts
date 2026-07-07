@@ -2,7 +2,14 @@ import { useCallback, useState } from 'react'
 import { useLocalStorage } from '@/hooks/useLocalStorage'
 import type { Episode, Playlist } from '@/types/playlist'
 import { extractYouTubeVideoId, fetchYouTubeOEmbed, getYouTubeThumbnail } from '@/lib/youtube'
-import { fetchVideoDetails, fetchChannelInfo, type VideoDetails, type SearchResultItem } from '@/lib/youtubeDataApi'
+import {
+  fetchVideoDetails,
+  fetchChannelInfo,
+  fetchVideoDetailsBatch,
+  fetchPlaylistVideoIds,
+  type VideoDetails,
+  type SearchResultItem,
+} from '@/lib/youtubeDataApi'
 
 const STORAGE_KEY = 'podcastery:playlists'
 
@@ -31,6 +38,21 @@ async function buildEpisodeFromVideoId(videoId: string, rawUrl: string): Promise
     durationSeconds: details?.durationSeconds,
     channelTitle: details?.channelTitle,
     channelThumbnail,
+  }
+}
+
+async function buildEpisodeFromVideoDetails(details: VideoDetails): Promise<Episode> {
+  const channel = await fetchChannelInfo(details.channelId)
+  return {
+    id: crypto.randomUUID(),
+    url: `https://www.youtube.com/watch?v=${details.videoId}`,
+    videoId: details.videoId,
+    title: details.title,
+    thumbnail: getYouTubeThumbnail(details.videoId),
+    addedAt: Date.now(),
+    durationSeconds: details.durationSeconds,
+    channelTitle: details.channelTitle,
+    channelThumbnail: channel?.thumbnail,
   }
 }
 
@@ -88,6 +110,34 @@ export function usePlaylists() {
     [setPlaylists]
   )
 
+  const importYouTubePlaylist = useCallback(
+    async (
+      playlistId: string,
+      youtubePlaylistId: string,
+      onProgress?: (done: number, total: number) => void
+    ) => {
+      const videoIds = await fetchPlaylistVideoIds(youtubePlaylistId)
+      if (videoIds.length === 0) {
+        throw new Error('ไม่พบวิดีโอใน playlist นี้ หรือ playlist ไม่ใช่สาธารณะ')
+      }
+
+      const allDetails = await fetchVideoDetailsBatch(videoIds)
+      const episodes: Episode[] = []
+      for (let i = 0; i < allDetails.length; i++) {
+        const episode = await buildEpisodeFromVideoDetails(allDetails[i])
+        episodes.push(episode)
+        onProgress?.(i + 1, allDetails.length)
+      }
+
+      setPlaylists((prev) =>
+        prev.map((p) =>
+          p.id === playlistId ? { ...p, episodes: [...p.episodes, ...episodes] } : p
+        )
+      )
+    },
+    [setPlaylists]
+  )
+
   const removeEpisode = useCallback(
     (playlistId: string, episodeId: string) => {
       setPlaylists((prev) =>
@@ -105,6 +155,7 @@ export function usePlaylists() {
     deletePlaylist,
     addEpisode,
     addEpisodeFromSearchResult,
+    importYouTubePlaylist,
     removeEpisode,
     nowPlaying,
     setNowPlaying,
