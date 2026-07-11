@@ -12,10 +12,12 @@ import {
   ListMusic,
   Headphones,
   Home,
+  Shuffle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { usePlaylists } from '@/hooks/usePlaylists'
+import { usePlayHistory } from '@/hooks/usePlayHistory'
 import { AddEpisodeDialog } from '@/components/AddEpisodeDialog'
 import { HomeView } from '@/components/HomeView'
 import { SelectPlaylistDialog } from '@/components/SelectPlaylistDialog'
@@ -50,6 +52,8 @@ const CARD_ACCENTS = [
   'from-violet-400/90 to-purple-600/90',
 ]
 
+const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const
+
 type ActiveView = 'home' | 'playlist'
 
 export function MusicDashboard() {
@@ -63,6 +67,8 @@ export function MusicDashboard() {
   const [volume, setVolumeState] = useState(70)
   const [pickedClip, setPickedClip] = useState<SearchResultItem | null>(null)
   const [selectPlaylistOpen, setSelectPlaylistOpen] = useState(false)
+  const [isShuffled, setIsShuffled] = useState(false)
+  const [playbackRate, setPlaybackRate] = useState(1)
 
   const {
     playlists,
@@ -73,6 +79,7 @@ export function MusicDashboard() {
     importYouTubePlaylist,
     removeEpisode,
   } = usePlaylists()
+  const { recordPlay } = usePlayHistory()
   const playerRef = useRef<YouTubePlayerHandle>(null)
   const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -107,14 +114,21 @@ export function MusicDashboard() {
     }
   }, [isPlaying])
 
-  const playEpisode = (playlistId: string, episodeId: string, videoId: string) => {
+  const playEpisode = (
+    playlistId: string,
+    episodeId: string,
+    videoId: string,
+    channelTitle?: string
+  ) => {
     setSelectedPlaylistId(playlistId)
     setCurrentEpisodeId(episodeId)
     setCurrentTime(0)
     setDuration(0)
     playerRef.current?.loadVideo(videoId)
     playerRef.current?.setVolume(volume)
+    playerRef.current?.setPlaybackRate(playbackRate)
     setIsPlaying(true)
+    recordPlay(videoId, channelTitle)
   }
 
   const handleTogglePlay = () => {
@@ -131,21 +145,41 @@ export function MusicDashboard() {
   const handleNext = () => {
     if (!selectedPlaylist || !currentEpisode) return
     const idx = selectedPlaylist.episodes.findIndex((e) => e.id === currentEpisode.id)
+
+    if (isShuffled) {
+      const candidates = selectedPlaylist.episodes.filter((e) => e.id !== currentEpisode.id)
+      if (candidates.length === 0) return
+      const next = candidates[Math.floor(Math.random() * candidates.length)]
+      playEpisode(selectedPlaylist.id, next.id, next.videoId, next.channelTitle)
+      return
+    }
+
     const next = selectedPlaylist.episodes[idx + 1]
-    if (next) playEpisode(selectedPlaylist.id, next.id, next.videoId)
+    if (next) playEpisode(selectedPlaylist.id, next.id, next.videoId, next.channelTitle)
   }
 
   const handlePrev = () => {
     if (!selectedPlaylist || !currentEpisode) return
     const idx = selectedPlaylist.episodes.findIndex((e) => e.id === currentEpisode.id)
     const prev = selectedPlaylist.episodes[idx - 1]
-    if (prev) playEpisode(selectedPlaylist.id, prev.id, prev.videoId)
+    if (prev) playEpisode(selectedPlaylist.id, prev.id, prev.videoId, prev.channelTitle)
   }
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const next = Number(e.target.value)
     setVolumeState(next)
     playerRef.current?.setVolume(next)
+  }
+
+  const handleToggleShuffle = () => {
+    setIsShuffled((prev) => !prev)
+  }
+
+  const handleCyclePlaybackRate = () => {
+    const currentIndex = PLAYBACK_RATES.indexOf(playbackRate as (typeof PLAYBACK_RATES)[number])
+    const nextRate = PLAYBACK_RATES[(currentIndex + 1) % PLAYBACK_RATES.length]
+    setPlaybackRate(nextRate)
+    playerRef.current?.setPlaybackRate(nextRate)
   }
 
   const handleDeletePlaylist = async (playlistId: string, playlistName: string) => {
@@ -369,7 +403,9 @@ export function MusicDashboard() {
 
                         <button
                           type="button"
-                          onClick={() => playEpisode(selectedPlaylist.id, episode.id, episode.videoId)}
+                          onClick={() =>
+                            playEpisode(selectedPlaylist.id, episode.id, episode.videoId, episode.channelTitle)
+                          }
                           className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"
                           aria-label={`เล่น ${episode.title}`}
                         >
@@ -453,6 +489,21 @@ export function MusicDashboard() {
         <div className="flex flex-[1.4] flex-col items-center gap-1.5">
           <div className="flex items-center gap-5">
             <button
+              type="button"
+              onClick={handleToggleShuffle}
+              aria-pressed={isShuffled}
+              aria-label={isShuffled ? 'ปิดสุ่มเพลง' : 'เปิดสุ่มเพลง'}
+              className={cn(
+                'relative text-muted-foreground transition-colors hover:text-foreground',
+                isShuffled && 'text-primary hover:text-primary'
+              )}
+            >
+              <Shuffle className="size-4" />
+              {isShuffled && (
+                <span className="absolute -bottom-1.5 left-1/2 size-1 -translate-x-1/2 rounded-full bg-primary" />
+              )}
+            </button>
+            <button
               className="text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
               onClick={handlePrev}
               disabled={!currentEpisode}
@@ -480,6 +531,14 @@ export function MusicDashboard() {
               aria-label="ตอนถัดไป"
             >
               <SkipForward className="size-4.5 fill-current" />
+            </button>
+            <button
+              type="button"
+              onClick={handleCyclePlaybackRate}
+              aria-label={`ความเร็วเล่น ${playbackRate}x กดเพื่อเปลี่ยน`}
+              className="flex h-6 min-w-10 items-center justify-center rounded-full border border-border px-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+            >
+              {playbackRate}x
             </button>
           </div>
           <div className="flex w-full max-w-lg items-center gap-2 text-[11px] font-medium text-muted-foreground">

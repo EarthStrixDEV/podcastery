@@ -1,9 +1,48 @@
-import { useState } from 'react'
-import { Search, Loader2, SearchX, Plus, Headphones } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Search, Loader2, SearchX, Plus, Headphones, Sparkles, RotateCw } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { notifyError } from '@/lib/swal'
 import { searchVideos, type SearchResultItem } from '@/lib/youtubeDataApi'
+import { usePlayHistory } from '@/hooks/usePlayHistory'
+import { getRecommendedClips } from '@/lib/recommendation'
+
+interface ClipRowProps {
+  clip: SearchResultItem
+  index: number
+  onPick: (clip: SearchResultItem) => void
+}
+
+function ClipRow({ clip, index, onPick }: ClipRowProps) {
+  return (
+    <div
+      style={{ animationDelay: `${Math.min(index, 10) * 30}ms` }}
+      className="group flex items-center gap-4 rounded-xl p-3 transition-colors duration-150 hover:bg-muted animate-in fade-in-0 slide-in-from-bottom-1 fill-mode-backwards"
+    >
+      <img
+        src={clip.thumbnail}
+        alt={clip.title}
+        className="h-14 w-24 shrink-0 rounded-lg object-cover"
+      />
+      <div className="min-w-0 flex-1">
+        <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground">
+          {clip.title}
+        </p>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">{clip.channelTitle}</p>
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        onClick={() => onPick(clip)}
+        className="shrink-0 gap-1.5 rounded-full opacity-0 transition-all duration-150 group-hover:opacity-100"
+      >
+        <Plus className="size-3.5" />
+        เพิ่ม
+      </Button>
+    </div>
+  )
+}
 
 interface HomeViewProps {
   onPickClip: (clip: SearchResultItem) => void
@@ -14,6 +53,27 @@ export function HomeView({ onPickClip }: HomeViewProps) {
   const [results, setResults] = useState<SearchResultItem[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [hasSearched, setHasSearched] = useState(false)
+
+  const { history } = usePlayHistory()
+  const [recommended, setRecommended] = useState<SearchResultItem[]>([])
+  const [isLoadingRecommended, setIsLoadingRecommended] = useState(false)
+
+  const loadRecommendations = async () => {
+    setIsLoadingRecommended(true)
+    try {
+      const { clips } = await getRecommendedClips(history)
+      setRecommended(clips)
+    } catch (err) {
+      notifyError(err instanceof Error ? err.message : 'โหลดคลิปแนะนำไม่สำเร็จ')
+    } finally {
+      setIsLoadingRecommended(false)
+    }
+  }
+
+  useEffect(() => {
+    loadRecommendations()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleSearch = async () => {
     if (!query.trim()) return
@@ -95,43 +155,59 @@ export function HomeView({ onPickClip }: HomeViewProps) {
         )}
 
         {!isSearching && !hasSearched && (
-          <div className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
-            <Search className="size-8 opacity-40" />
-            <p className="text-sm">ผลการค้นหาจะแสดงเป็นรายการที่นี่</p>
+          <div>
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                <Sparkles className="size-4 text-primary" />
+                แนะนำสำหรับคุณ
+              </div>
+              <button
+                type="button"
+                onClick={loadRecommendations}
+                disabled={isLoadingRecommended}
+                aria-label="สุ่มคลิปแนะนำใหม่"
+                className="text-muted-foreground transition-transform duration-300 hover:text-foreground disabled:opacity-40"
+              >
+                <RotateCw className={cn('size-4', isLoadingRecommended && 'animate-spin')} />
+              </button>
+            </div>
+
+            {isLoadingRecommended &&
+              Array.from({ length: 5 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="flex animate-pulse items-center gap-4 rounded-xl p-3"
+                  style={{ animationDelay: `${i * 75}ms` }}
+                >
+                  <div className="h-14 w-24 shrink-0 rounded-lg bg-muted" />
+                  <div className="flex min-w-0 flex-1 flex-col gap-2">
+                    <div className="h-4 w-3/4 rounded bg-muted" />
+                    <div className="h-3 w-1/3 rounded bg-muted" />
+                  </div>
+                </div>
+              ))}
+
+            {!isLoadingRecommended && recommended.length === 0 && (
+              <div className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
+                <Search className="size-8 opacity-40" />
+                <p className="text-sm">ยังแนะนำคลิปไม่ได้ ลองค้นหาด้วยตัวเองก่อนนะ</p>
+              </div>
+            )}
+
+            {!isLoadingRecommended && recommended.length > 0 && (
+              <div className="flex flex-col gap-1">
+                {recommended.map((clip, index) => (
+                  <ClipRow key={clip.videoId} clip={clip} index={index} onPick={onPickClip} />
+                ))}
+              </div>
+            )}
           </div>
         )}
 
         {!isSearching && results.length > 0 && (
           <div className="flex flex-col gap-1">
             {results.map((result, index) => (
-              <div
-                key={result.videoId}
-                style={{ animationDelay: `${Math.min(index, 10) * 30}ms` }}
-                className="group flex items-center gap-4 rounded-xl p-3 transition-colors duration-150 hover:bg-muted animate-in fade-in-0 slide-in-from-bottom-1 fill-mode-backwards"
-              >
-                <img
-                  src={result.thumbnail}
-                  alt={result.title}
-                  className="h-14 w-24 shrink-0 rounded-lg object-cover"
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground">
-                    {result.title}
-                  </p>
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {result.channelTitle}
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => onPickClip(result)}
-                  className="shrink-0 gap-1.5 rounded-full opacity-0 transition-all duration-150 group-hover:opacity-100"
-                >
-                  <Plus className="size-3.5" />
-                  เพิ่ม
-                </Button>
-              </div>
+              <ClipRow key={result.videoId} clip={result} index={index} onPick={onPickClip} />
             ))}
           </div>
         )}

@@ -5,6 +5,7 @@ export interface YouTubePlayerHandle {
   pause: () => void
   seekTo: (seconds: number) => void
   setVolume: (volume: number) => void
+  setPlaybackRate: (rate: number) => void
   loadVideo: (videoId: string) => void
   getDuration: () => number
   getCurrentTime: () => number
@@ -80,6 +81,7 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, YouTubePlayerProps>
         pause: () => playerRef.current?.pauseVideo(),
         seekTo: (seconds) => playerRef.current?.seekTo(seconds, true),
         setVolume: (volume) => playerRef.current?.setVolume(volume),
+        setPlaybackRate: (rate) => playerRef.current?.setPlaybackRate(rate),
         loadVideo: (videoId) => playerRef.current?.loadVideoById(videoId),
         getDuration: () => playerRef.current?.getDuration() ?? 0,
         getCurrentTime: () => playerRef.current?.getCurrentTime() ?? 0,
