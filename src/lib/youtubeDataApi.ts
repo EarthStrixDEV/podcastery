@@ -11,6 +11,9 @@ export interface VideoDetails {
   channelTitle: string
   durationSeconds: number
   thumbnail: string
+  viewCount?: number
+  publishedAt?: string
+  description?: string
 }
 
 export function parseIsoDuration(iso: string): number {
@@ -24,8 +27,16 @@ export function parseIsoDuration(iso: string): number {
 
 interface VideosApiItem {
   id: string
-  snippet: { title: string; channelId: string; channelTitle: string; thumbnails: { medium?: { url: string }; default: { url: string } } }
+  snippet: {
+    title: string
+    channelId: string
+    channelTitle: string
+    description: string
+    publishedAt: string
+    thumbnails: { medium?: { url: string }; default: { url: string } }
+  }
   contentDetails: { duration: string }
+  statistics?: { viewCount?: string }
 }
 
 interface VideosApiResponse {
@@ -40,6 +51,9 @@ function mapVideoItem(item: VideosApiItem): VideoDetails {
     channelTitle: item.snippet.channelTitle,
     durationSeconds: parseIsoDuration(item.contentDetails.duration),
     thumbnail: item.snippet.thumbnails.medium?.url ?? item.snippet.thumbnails.default.url,
+    viewCount: item.statistics?.viewCount ? Number(item.statistics.viewCount) : undefined,
+    publishedAt: item.snippet.publishedAt,
+    description: item.snippet.description,
   }
 }
 
@@ -56,7 +70,7 @@ export async function fetchVideoDetailsBatch(videoIds: string[]): Promise<VideoD
   for (const chunk of chunks) {
     try {
       const params = new URLSearchParams({
-        part: 'snippet,contentDetails',
+        part: 'snippet,contentDetails,statistics',
         id: chunk.join(','),
         key,
       })
