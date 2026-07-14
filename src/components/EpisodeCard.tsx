@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { Trash2, Play, Pause } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDuration } from '@/lib/format'
+import { SoundwaveIcon } from '@/components/SoundwaveIcon'
 import type { Episode } from '@/types/playlist'
 
 interface EpisodeCardProps {
@@ -58,6 +59,12 @@ export function EpisodeCard({ episode, index, isCurrent, isPlaying, onRemove }: 
             {formatDuration(episode.durationSeconds)}
           </span>
         ) : null}
+
+        {isCurrent && isPlaying && (
+          <span className="absolute bottom-2 left-2 flex items-center gap-1 rounded-md bg-black/80 px-1.5 py-1">
+            <SoundwaveIcon />
+          </span>
+        )}
       </div>
 
       <Link to={`/watch/${episode.videoId}`} className="flex gap-2.5 p-3">

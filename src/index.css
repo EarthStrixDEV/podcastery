@@ -184,3 +184,16 @@
 .podcastery-toast .swal2-timer-progress-bar {
   background: var(--sidebar-primary) !important;
 }
+
+@keyframes soundwave {
+  0%, 100% {
+    height: 30%;
+  }
+  50% {
+    height: 100%;
+  }
+}
+
+.animate-soundwave {
+  animation: soundwave ease-in-out infinite;
+}
