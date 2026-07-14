@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ChevronDown, ChevronUp, ListPlus, Play } from 'lucide-react'
+import { ChevronDown, ChevronUp, ExternalLink, ListPlus, Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { usePlayback } from '@/contexts/PlaybackContext'
 import { fetchVideoDetails, searchVideos, type SearchResultItem, type VideoDetails } from '@/lib/youtubeDataApi'
@@ -23,9 +23,11 @@ export function WatchView({ onSaveClip }: WatchViewProps) {
     isPlaying,
     currentTime,
     duration,
+    playerRef,
     playEpisode,
     playStandaloneVideo,
     updateStandaloneMetadata,
+    continueWatching,
   } = usePlayback()
 
   const [details, setDetails] = useState<VideoDetails | null>(null)
@@ -49,6 +51,22 @@ export function WatchView({ onSaveClip }: WatchViewProps) {
       playEpisode(owningPlaylist.id, episode.id, episode.videoId, episode.channelTitle)
     } else {
       playStandaloneVideo(videoId, 'กำลังโหลด...')
+    }
+
+    // ถ้ามี record เล่นค้างไว้ตรงกับวิดีโอนี้ ให้ seek กลับไปตำแหน่งเดิมทันที (ไม่ต้องผ่าน banner)
+    if (continueWatching?.videoId === videoId && continueWatching.positionSeconds > 0) {
+      const targetSeconds = continueWatching.positionSeconds
+      const start = Date.now()
+      const trySeek = setInterval(() => {
+        const ready = (playerRef.current?.getDuration() ?? 0) > 0
+        if (ready) {
+          playerRef.current?.seekTo(targetSeconds)
+          clearInterval(trySeek)
+        } else if (Date.now() - start > 8000) {
+          clearInterval(trySeek)
+        }
+      }, 200)
+      return () => clearInterval(trySeek)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoId])
@@ -175,15 +193,29 @@ export function WatchView({ onSaveClip }: WatchViewProps) {
               title
             )}
           </h1>
-          <Button
-            type="button"
-            onClick={handleSave}
-            variant="outline"
-            className="shrink-0 gap-1.5 rounded-full transition-transform active:scale-95"
-          >
-            <ListPlus className="size-4" />
-            Save
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              type="button"
+              onClick={() =>
+                window.open(`https://www.youtube.com/watch?v=${videoId}`, '_blank', 'noopener,noreferrer')
+              }
+              variant="outline"
+              className="gap-1.5 rounded-full transition-transform active:scale-95"
+              aria-label="ดูบน YouTube"
+            >
+              <ExternalLink className="size-4" />
+              Watch on YouTube
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSave}
+              variant="outline"
+              className="gap-1.5 rounded-full transition-transform active:scale-95"
+            >
+              <ListPlus className="size-4" />
+              Save
+            </Button>
+          </div>
         </div>
 
         <div className="mt-3 flex items-center gap-3">

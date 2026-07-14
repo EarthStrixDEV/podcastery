@@ -8,6 +8,9 @@ import {
   Volume1,
   VolumeX,
   Shuffle,
+  Gauge,
+  Mic2,
+  ExternalLink,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatTime } from '@/lib/format'
@@ -24,6 +27,8 @@ export function PlayerBar() {
     volume,
     isShuffled,
     playbackRate,
+    isStableVolume,
+    isVoiceBoost,
     handleTogglePlay,
     handleNext,
     handlePrev,
@@ -31,6 +36,8 @@ export function PlayerBar() {
     handleToggleShuffle,
     handleCyclePlaybackRate,
     handleSeek,
+    handleToggleStableVolume,
+    handleToggleVoiceBoost,
   } = usePlayback()
 
   const selectedPlaylist = playlists.find((p) => p.id === selectedPlaylistId) ?? null
@@ -136,7 +143,50 @@ export function PlayerBar() {
         </div>
       </div>
 
-      <div className="flex flex-1 items-center justify-end gap-2">
+      <div className="flex flex-1 items-center justify-end gap-3">
+        <button
+          type="button"
+          onClick={handleToggleStableVolume}
+          aria-pressed={isStableVolume}
+          aria-label={isStableVolume ? 'ปิด Stable Volume' : 'เปิด Stable Volume'}
+          title="Stable Volume"
+          className={cn(
+            'text-muted-foreground transition-colors hover:text-foreground',
+            isStableVolume && 'text-primary hover:text-primary'
+          )}
+        >
+          <Gauge className="size-4" />
+        </button>
+        <button
+          type="button"
+          onClick={handleToggleVoiceBoost}
+          aria-pressed={isVoiceBoost}
+          aria-label={isVoiceBoost ? 'ปิด Voice Boost' : 'เปิด Voice Boost'}
+          title="Voice Boost"
+          className={cn(
+            'text-muted-foreground transition-colors hover:text-foreground',
+            isVoiceBoost && 'text-primary hover:text-primary'
+          )}
+        >
+          <Mic2 className="size-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            currentEpisode &&
+            window.open(
+              `https://www.youtube.com/watch?v=${currentEpisode.videoId}`,
+              '_blank',
+              'noopener,noreferrer'
+            )
+          }
+          disabled={!currentEpisode}
+          aria-label="ดูบน YouTube"
+          title="ดูบน YouTube"
+          className="text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
+        >
+          <ExternalLink className="size-4" />
+        </button>
         <VolumeIcon className="size-4 text-muted-foreground" />
         <input
           type="range"

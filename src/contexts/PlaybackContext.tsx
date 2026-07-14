@@ -1,11 +1,26 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { usePlaylists } from '@/hooks/usePlaylists'
 import { usePlayHistory } from '@/hooks/usePlayHistory'
+import { useLocalStorage } from '@/hooks/useLocalStorage'
 import { YouTubePlayer, type YouTubePlayerHandle } from '@/components/YouTubePlayer'
 import { getYouTubeThumbnail } from '@/lib/youtube'
 import type { Episode, Playlist } from '@/types/playlist'
 
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const
+
+/** เขียน localStorage ของ continue-watching ทุกๆ กี่ ms อย่างน้อย (throttle จาก progressTimer 500ms) */
+const CONTINUE_WATCHING_WRITE_INTERVAL_MS = 7000
+
+export interface ContinueWatchingRecord {
+  videoId: string
+  title: string
+  channelTitle?: string
+  thumbnail: string
+  playlistId?: string
+  episodeId?: string
+  positionSeconds: number
+  savedAt: number
+}
 
 interface PlaybackContextValue {
   playlists: Playlist[]
@@ -24,6 +39,8 @@ interface PlaybackContextValue {
   volume: number
   isShuffled: boolean
   playbackRate: number
+  isStableVolume: boolean
+  isVoiceBoost: boolean
 
   playerRef: React.RefObject<YouTubePlayerHandle | null>
   playEpisode: (playlistId: string, episodeId: string, videoId: string, channelTitle?: string) => void
@@ -38,6 +55,11 @@ interface PlaybackContextValue {
   handleToggleShuffle: () => void
   handleCyclePlaybackRate: () => void
   handleSeek: (seconds: number) => void
+  handleToggleStableVolume: () => void
+  handleToggleVoiceBoost: () => void
+
+  continueWatching: ContinueWatchingRecord | null
+  resumeContinueWatching: () => void
 }
 
 const PlaybackContext = createContext<PlaybackContextValue | null>(null)
@@ -63,9 +85,19 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   const [volume, setVolumeState] = useState(70)
   const [isShuffled, setIsShuffled] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
+  const [isStableVolume, setIsStableVolume] = useState(false)
+  const [isVoiceBoost, setIsVoiceBoost] = useState(false)
 
   const playerRef = useRef<YouTubePlayerHandle>(null)
   const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [continueWatching, setContinueWatching] = useLocalStorage<ContinueWatchingRecord | null>(
+    'podcastery:continue-watching',
+    null
+  )
+  const lastContinueWatchingWriteAt = useRef(0)
+
+  /** volume ที่ส่งเข้า player จริง — Voice Boost ดันเป็น 100, ไม่งั้นใช้ volume ที่ user ตั้ง */
+  const effectiveVolume = isVoiceBoost ? 100 : volume
 
   const selectedPlaylist = useMemo(
     () => playlists.find((p) => p.id === selectedPlaylistId) ?? null,
@@ -77,11 +109,36 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     return selectedPlaylist?.episodes.find((e) => e.id === currentEpisodeId) ?? null
   }, [standaloneEpisode, selectedPlaylist, currentEpisodeId])
 
+  // ref เก็บค่าล่าสุดไว้ให้ beforeunload/interval callback อ่านได้โดยไม่ต้อง re-bind ทุกครั้งที่ currentTime เปลี่ยน
+  const latestRef = useRef({ currentEpisode, currentTime, selectedPlaylistId, currentEpisodeId })
+  latestRef.current = { currentEpisode, currentTime, selectedPlaylistId, currentEpisodeId }
+
+  const saveContinueWatching = (force: boolean) => {
+    const { currentEpisode: ep, currentTime: time, selectedPlaylistId: plId, currentEpisodeId: epId } =
+      latestRef.current
+    if (!ep) return
+    const now = Date.now()
+    if (!force && now - lastContinueWatchingWriteAt.current < CONTINUE_WATCHING_WRITE_INTERVAL_MS) return
+    lastContinueWatchingWriteAt.current = now
+    setContinueWatching({
+      videoId: ep.videoId,
+      title: ep.title,
+      channelTitle: ep.channelTitle,
+      thumbnail: ep.thumbnail,
+      playlistId: plId ?? undefined,
+      episodeId: epId ?? undefined,
+      positionSeconds: time,
+      savedAt: now,
+    })
+  }
+
   useEffect(() => {
     if (isPlaying) {
       progressTimer.current = setInterval(() => {
         setCurrentTime(playerRef.current?.getCurrentTime() ?? 0)
         setDuration(playerRef.current?.getDuration() ?? 0)
+        if (isStableVolume) playerRef.current?.setVolume(effectiveVolume)
+        saveContinueWatching(false)
       }, 500)
     } else if (progressTimer.current) {
       clearInterval(progressTimer.current)
@@ -90,7 +147,20 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     return () => {
       if (progressTimer.current) clearInterval(progressTimer.current)
     }
-  }, [isPlaying])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying, isStableVolume, effectiveVolume])
+
+  useEffect(() => {
+    const onBeforeUnload = () => saveContinueWatching(true)
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    playerRef.current?.setVolume(effectiveVolume)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveVolume])
 
   const playEpisode = (
     playlistId: string,
@@ -104,7 +174,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     setCurrentTime(0)
     setDuration(0)
     playerRef.current?.loadVideo(videoId)
-    playerRef.current?.setVolume(volume)
+    playerRef.current?.setVolume(effectiveVolume)
     playerRef.current?.setPlaybackRate(playbackRate)
     setIsPlaying(true)
     recordPlay(videoId, channelTitle)
@@ -125,7 +195,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     setCurrentTime(0)
     setDuration(0)
     playerRef.current?.loadVideo(videoId)
-    playerRef.current?.setVolume(volume)
+    playerRef.current?.setVolume(effectiveVolume)
     playerRef.current?.setPlaybackRate(playbackRate)
     setIsPlaying(true)
     recordPlay(videoId, channelTitle)
@@ -174,11 +244,19 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
 
   const handleVolumeChange = (next: number) => {
     setVolumeState(next)
-    playerRef.current?.setVolume(next)
+    if (!isVoiceBoost) playerRef.current?.setVolume(next)
   }
 
   const handleToggleShuffle = () => {
     setIsShuffled((prev) => !prev)
+  }
+
+  const handleToggleStableVolume = () => {
+    setIsStableVolume((prev) => !prev)
+  }
+
+  const handleToggleVoiceBoost = () => {
+    setIsVoiceBoost((prev) => !prev)
   }
 
   const handleCyclePlaybackRate = () => {
@@ -198,6 +276,44 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
       setCurrentEpisodeId(null)
       setIsPlaying(false)
     }
+    setContinueWatching((prev) =>
+      prev && prev.playlistId === playlistId && prev.episodeId === episodeId ? null : prev
+    )
+  }
+
+  /** episode เล่นจบ — เคลียร์ continue-watching record ของตัวที่เพิ่งจบ แล้วค่อยไปตอนถัดไปตามปกติ */
+  const handleEnded = () => {
+    setContinueWatching((prev) =>
+      prev && prev.videoId === latestRef.current.currentEpisode?.videoId ? null : prev
+    )
+    handleNext()
+  }
+
+  const resumeContinueWatching = () => {
+    if (!continueWatching) return
+    const { videoId, title, channelTitle, playlistId, episodeId, positionSeconds } = continueWatching
+    if (playlistId && episodeId) {
+      playEpisode(playlistId, episodeId, videoId, channelTitle)
+    } else {
+      playStandaloneVideo(videoId, title, channelTitle)
+    }
+    seekWhenReady(positionSeconds)
+  }
+
+  /** loadVideo เป็น async ฝั่ง YT iframe — ต้องรอ duration > 0 (แปลว่าโหลดวิดีโอใหม่เสร็จแล้ว) ก่อนถึง seekTo จะมีผล */
+  const seekWhenReady = (seconds: number) => {
+    if (seconds <= 0) return
+    const start = Date.now()
+    const tryClear = setInterval(() => {
+      const ready = (playerRef.current?.getDuration() ?? 0) > 0
+      if (ready) {
+        playerRef.current?.seekTo(seconds)
+        clearInterval(tryClear)
+      } else if (Date.now() - start > 8000) {
+        // กันเคส network ช้าจนไม่มี duration เลย — เลิกพยายามหลัง 8 วิ
+        clearInterval(tryClear)
+      }
+    }, 200)
   }
 
   const handleDeletePlaylist = (playlistId: string) => {
@@ -226,6 +342,8 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     volume,
     isShuffled,
     playbackRate,
+    isStableVolume,
+    isVoiceBoost,
 
     playerRef,
     playEpisode,
@@ -238,6 +356,11 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     handleToggleShuffle,
     handleCyclePlaybackRate,
     handleSeek,
+    handleToggleStableVolume,
+    handleToggleVoiceBoost,
+
+    continueWatching,
+    resumeContinueWatching,
   }
 
   return (
@@ -248,7 +371,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
           if (state === 1) setIsPlaying(true)
           if (state === 2) setIsPlaying(false)
         }}
-        onEnded={handleNext}
+        onEnded={handleEnded}
       />
       {children}
     </PlaybackContext.Provider>
