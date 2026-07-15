@@ -1,7 +1,10 @@
-const API_BASE = 'https://www.googleapis.com/youtube/v3'
+const PROXY_BASE = '/api/youtube'
 
-function getApiKey(): string | undefined {
-  return import.meta.env.VITE_YOUTUBE_API_KEY
+function logFetchFailure(context: string, err: unknown): void {
+  console.error(
+    `[YouTube API] เรียก ${context} ไม่สำเร็จ — เครือข่าย/ไฟร์วอลล์อาจบล็อกการเชื่อมต่อ:`,
+    err
+  )
 }
 
 export interface VideoDetails {
@@ -58,8 +61,7 @@ function mapVideoItem(item: VideosApiItem): VideoDetails {
 }
 
 export async function fetchVideoDetailsBatch(videoIds: string[]): Promise<VideoDetails[]> {
-  const key = getApiKey()
-  if (!key || videoIds.length === 0) return []
+  if (videoIds.length === 0) return []
 
   const chunks: string[][] = []
   for (let i = 0; i < videoIds.length; i += 50) {
@@ -70,15 +72,19 @@ export async function fetchVideoDetailsBatch(videoIds: string[]): Promise<VideoD
   for (const chunk of chunks) {
     try {
       const params = new URLSearchParams({
+        endpoint: 'videos',
         part: 'snippet,contentDetails,statistics',
         id: chunk.join(','),
-        key,
       })
-      const res = await fetch(`${API_BASE}/videos?${params}`)
-      if (!res.ok) continue
+      const res = await fetch(`${PROXY_BASE}?${params}`)
+      if (!res.ok) {
+        console.error(`[YouTube API] videos endpoint ตอบ status ${res.status} ${res.statusText}`)
+        continue
+      }
       const data: VideosApiResponse = await res.json()
       results.push(...data.items.map(mapVideoItem))
-    } catch {
+    } catch (err) {
+      logFetchFailure('videos (metadata enrichment)', err)
       continue
     }
   }
@@ -106,17 +112,17 @@ interface ChannelsApiResponse {
 }
 
 export async function fetchChannelInfo(channelId: string): Promise<ChannelInfo | null> {
-  const key = getApiKey()
-  if (!key) return null
-
   try {
     const params = new URLSearchParams({
+      endpoint: 'channels',
       part: 'snippet',
       id: channelId,
-      key,
     })
-    const res = await fetch(`${API_BASE}/channels?${params}`)
-    if (!res.ok) return null
+    const res = await fetch(`${PROXY_BASE}?${params}`)
+    if (!res.ok) {
+      console.error(`[YouTube API] channels endpoint ตอบ status ${res.status} ${res.statusText}`)
+      return null
+    }
     const data: ChannelsApiResponse = await res.json()
     const item = data.items[0]
     if (!item) return null
@@ -125,7 +131,8 @@ export async function fetchChannelInfo(channelId: string): Promise<ChannelInfo |
       title: item.snippet.title,
       thumbnail: item.snippet.thumbnails.default.url,
     }
-  } catch {
+  } catch (err) {
+    logFetchFailure('channels', err)
     return null
   }
 }
@@ -147,30 +154,28 @@ interface SearchApiResponse {
 }
 
 export async function searchVideos(query: string): Promise<SearchResultItem[]> {
-  const key = getApiKey()
-  if (!key) {
-    throw new Error('ยังไม่ได้ตั้งค่า YouTube API Key')
-  }
-
   const params = new URLSearchParams({
+    endpoint: 'search',
     part: 'snippet',
     type: 'video',
     maxResults: '12',
     q: query,
-    key,
   })
 
   let res: Response
   try {
-    res = await fetch(`${API_BASE}/search?${params}`)
-  } catch {
+    res = await fetch(`${PROXY_BASE}?${params}`)
+  } catch (err) {
+    logFetchFailure('search', err)
     throw new Error('เชื่อมต่อ YouTube ไม่สำเร็จ ลองใหม่อีกครั้ง')
   }
 
   if (res.status === 403) {
+    console.error(`[YouTube API] search endpoint ตอบ 403 — โควต้าหมด หรือ API key ถูกจำกัด referrer/IP`)
     throw new Error('โควต้า YouTube API หมดสำหรับวันนี้ ลองใหม่พรุ่งนี้ หรือวาง URL แทนการค้นหา')
   }
   if (!res.ok) {
+    console.error(`[YouTube API] search endpoint ตอบ status ${res.status} ${res.statusText}`)
     throw new Error('ค้นหาไม่สำเร็จ ลองใหม่อีกครั้ง')
   }
 
@@ -195,34 +200,32 @@ interface PlaylistItemsApiResponse {
 }
 
 export async function fetchPlaylistVideoIds(playlistId: string): Promise<string[]> {
-  const key = getApiKey()
-  if (!key) {
-    throw new Error('ยังไม่ได้ตั้งค่า YouTube API Key')
-  }
-
   const videoIds: string[] = []
   let pageToken = ''
 
   do {
     const params = new URLSearchParams({
+      endpoint: 'playlistItems',
       part: 'contentDetails',
       maxResults: '50',
       playlistId,
-      key,
     })
     if (pageToken) params.set('pageToken', pageToken)
 
     let res: Response
     try {
-      res = await fetch(`${API_BASE}/playlistItems?${params}`)
-    } catch {
+      res = await fetch(`${PROXY_BASE}?${params}`)
+    } catch (err) {
+      logFetchFailure('playlistItems', err)
       throw new Error('เชื่อมต่อ YouTube ไม่สำเร็จ ลองใหม่อีกครั้ง')
     }
 
     if (res.status === 403) {
+      console.error(`[YouTube API] playlistItems endpoint ตอบ 403 — โควต้าหมด หรือ API key ถูกจำกัด referrer/IP`)
       throw new Error('โควต้า YouTube API หมดสำหรับวันนี้ ลองใหม่พรุ่งนี้')
     }
     if (!res.ok) {
+      console.error(`[YouTube API] playlistItems endpoint ตอบ status ${res.status} ${res.statusText}`)
       throw new Error('นำเข้า playlist ไม่สำเร็จ ตรวจสอบว่า playlist เป็นสาธารณะ')
     }
 

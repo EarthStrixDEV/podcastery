@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-- `npm run dev` — start Vite dev server
+- `npm run dev` — start Vite dev server only (no `/api` functions; use `vercel dev` directly, not `npm run dev`, when you need `/api/youtube` locally — it auto-detects Vite and runs the `dev` script itself, so `package.json`'s `dev` script must stay `vite`, never `vercel dev`, or it recurses)
 - `npm run build` — type-check (`tsc -b`) then production build
 - `npm run lint` — run oxlint
 - `npm run preview` — preview the production build
@@ -13,11 +13,11 @@ There is no test suite configured in this project.
 
 ## Environment
 
-Requires `VITE_YOUTUBE_API_KEY` in `.env` (see `.env.example`) — a YouTube Data API v3 key. Without it, search, playlist import, and episode metadata (duration/channel) enrichment silently degrade or throw user-facing Thai error messages; oEmbed-based title fallback still works without a key.
+Requires `YOUTUBE_API_KEY` (no `VITE_` prefix — it must stay server-only) in `.env` (see `.env.example`) — a YouTube Data API v3 key. It is read only by the `/api/youtube` serverless function (`api/youtube.ts`), never bundled into client code. Without it, the proxy returns a 500 and search, playlist import, and episode metadata (duration/channel) enrichment surface Thai error messages or silently degrade; oEmbed-based title fallback still works without a key. On Vercel, set `YOUTUBE_API_KEY` in the project's Environment Variables (not `VITE_YOUTUBE_API_KEY`) — a redeploy is required for changes to take effect.
 
 ## Architecture
 
-Podcastery is a single-page app that turns YouTube videos into an audio-only "podcast" player, using YouTube's IFrame API as a hidden/muted-visual player. Everything is client-side; state persists to `localStorage` only — there is no backend.
+Podcastery is a single-page app that turns YouTube videos into an audio-only "podcast" player, using YouTube's IFrame API as a hidden/muted-visual player. Almost everything is client-side; app state persists to `localStorage` only. The one exception is `api/youtube.ts`, a Vercel serverless function that proxies all YouTube Data API v3 calls so the API key never reaches the browser and so client requests hit the same origin (avoids third-party-domain firewall blocks on `googleapis.com`).
 
 **Routing (`src/App.tsx`):** `react-router-dom` with a single layout route. `AppLayout` (Topbar + Sidebar + `<Outlet>` + `PlayerBar`) wraps four pages: `HomeView` (`/`, recommended clips), `SearchView` (`/search?q=`), `PlaylistView` (`/playlist/:id`), `WatchView` (`/watch/:videoId`). Picking a clip anywhere (search, recommendations, related) goes through a shared `handlePickClip` in `App.tsx` that opens `SelectPlaylistDialog` to choose/create a target playlist — this dialog lives outside the router `<Routes>` so it survives navigation.
 
@@ -25,9 +25,9 @@ Podcastery is a single-page app that turns YouTube videos into an audio-only "po
 
 **Data flow (playlists):**
 - `src/hooks/usePlaylists.ts` is the sole owner of playlist/episode state, backed by `src/hooks/useLocalStorage.ts` (key: `podcastery:playlists`, cross-tab synced via the `storage` event). All mutations (create/delete playlist, add/remove episode, import playlist) go through this hook, which `PlaybackProvider` calls internally and re-exposes via `usePlayback()`.
-- Adding an episode always resolves through `buildEpisodeFromVideoId`/`buildEpisodeFromVideoDetails` in that same file, which combines two data sources in parallel: the YouTube Data API (`src/lib/youtubeDataApi.ts`) for title/duration/channel, and the public oEmbed endpoint (`src/lib/youtube.ts`) as a title fallback when no API key is set or the Data API call fails. Both are best-effort (`Promise.allSettled`) — a missing key never blocks adding an episode by raw URL.
+- Adding an episode always resolves through `buildEpisodeFromVideoId`/`buildEpisodeFromVideoDetails` in that same file, which combines two data sources in parallel: the YouTube Data API (`src/lib/youtubeDataApi.ts`) for title/duration/channel, and the public oEmbed endpoint (`src/lib/youtube.ts`) as a title fallback when the Data API call fails. Both are best-effort (`Promise.allSettled`) — a failed/missing-key proxy call never blocks adding an episode by raw URL.
 - `src/lib/youtube.ts` also handles all YouTube URL/ID parsing (`watch`, `youtu.be`, `/embed/`, `/shorts/`, and `/playlist?list=`).
-- `src/lib/youtubeDataApi.ts` wraps `search`, `videos`, `channels`, and `playlistItems` endpoints, chunking video-detail lookups into batches of 50 and paginating `playlistItems` fully. All quota/network failures surface as Thai-language `Error` messages meant to be shown directly to the user (see `AddEpisodeDialog`/`swal` usage).
+- `src/lib/youtubeDataApi.ts` calls `/api/youtube?endpoint=...` (never `googleapis.com` directly) for `search`, `videos`, `channels`, and `playlistItems`, chunking video-detail lookups into batches of 50 and paginating `playlistItems` fully. All quota/network failures surface as Thai-language `Error` messages meant to be shown directly to the user (see `AddEpisodeDialog`/`swal` usage), and are also `console.error`-logged with technical detail for diagnosing firewall/CORS/quota issues. `api/youtube.ts` is the actual upstream caller: it validates `endpoint` against an allowlist, forwards query params, and attaches `YOUTUBE_API_KEY` server-side.
 
 **Recommendations & history:** `src/hooks/usePlayHistory.ts` records every play (`videoId`, `channelTitle`, `playedAt`) to `localStorage` (key `podcastery:play-history`, capped at 200 entries). `src/lib/recommendation.ts` (`getRecommendedClips`) scores channels by recency-weighted play count (`0.5 ^ (age / 14 days)` half-life), picks up to 3 channels via weighted sampling without replacement, and fires one `searchVideos` call per channel — falling back to a fixed Thai keyword pool when there's no history yet. `HomeView` is the only consumer.
 
